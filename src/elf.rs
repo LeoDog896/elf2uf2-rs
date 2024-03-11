@@ -88,7 +88,8 @@ impl Elf32Header {
             return Err(anyhow!("Invalid ELF32 program header"));
         }
 
-        let mut entries: Vec<Elf32PhEntry> = (0..self.ph_num).map(|_| Elf32PhEntry::default()).collect();
+        let mut entries: Vec<Elf32PhEntry> =
+            (0..self.ph_num).map(|_| Elf32PhEntry::default()).collect();
         input.read_exact(entries.as_mut_slice().as_bytes_mut())?;
 
         Ok(entries)
@@ -176,7 +177,7 @@ pub trait AddressRangesExt<'a>: IntoIterator<Item = &'a AddressRange> + Clone {
 
         matches!(range.typ, address_range::AddressRangeType::Contents)
     }
-    
+
     fn check_address_range(
         &self,
         addr: u32,
