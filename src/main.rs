@@ -1,6 +1,7 @@
 use address_range::{
     FLASH_SECTOR_ERASE_SIZE, MAIN_RAM_START, RP2040_ADDRESS_RANGES_FLASH, RP2040_ADDRESS_RANGES_RAM,
 };
+use anyhow::{anyhow, Result};
 use assert_into::AssertInto;
 use clap::Parser;
 use elf::{realize_page, AddressRangesExt, Elf32Header, PAGE_SIZE};
@@ -9,12 +10,11 @@ use pbr::{ProgressBar, Units};
 use static_assertions::const_assert;
 use std::{
     collections::HashSet,
-    error::Error,
     fs::{self, File},
-    io::{BufReader, Read, Seek, Write, BufWriter},
+    io::{BufReader, BufWriter, Read, Seek, Write},
     path::{Path, PathBuf},
 };
-use sysinfo::{DiskExt, SystemExt};
+use sysinfo::Disks;
 use uf2::{
     Uf2BlockData, Uf2BlockFooter, Uf2BlockHeader, RP2040_FAMILY_ID, UF2_FLAG_FAMILY_ID_PRESENT,
     UF2_MAGIC_END, UF2_MAGIC_START0, UF2_MAGIC_START1,
@@ -66,14 +66,14 @@ impl Opts {
 
 static OPTS: OnceCell<Opts> = OnceCell::new();
 
-fn elf2uf2(mut input: impl Read + Seek, mut output: impl Write) -> Result<(), Box<dyn Error>> {
+fn elf2uf2(mut input: impl Read + Seek, mut output: impl Write) -> Result<()> {
     let eh = Elf32Header::from_read(&mut input)?;
 
     let entries = eh.read_elf32_ph_entries(&mut input)?;
 
     let ram_style = eh
         .is_ram_binary(&entries)
-        .ok_or("entry point is not in mapped part of file".to_string())?;
+        .ok_or(anyhow!("entry point is not in mapped part of file"))?;
 
     if Opts::global().verbose {
         if ram_style {
@@ -92,7 +92,7 @@ fn elf2uf2(mut input: impl Read + Seek, mut output: impl Write) -> Result<(), Bo
     let mut pages = valid_ranges.check_elf32_ph_entries(&entries)?;
 
     if pages.is_empty() {
-        return Err("The input file has no memory pages".into());
+        return Err(anyhow!("The input file has no memory pages"));
     }
 
     if ram_style {
@@ -115,14 +115,16 @@ fn elf2uf2(mut input: impl Read + Seek, mut output: impl Write) -> Result<(), Bo
         };
 
         if expected_ep == expected_ep_xip_sram {
-            return Err("B0/B1 Boot ROM does not support direct entry into XIP_SRAM".into());
+            return Err(anyhow!(
+                "B0/B1 Boot ROM does not support direct entry into XIP_SRAM"
+            ));
         } else if eh.entry != expected_ep {
             #[allow(clippy::unnecessary_cast)]
-            return Err(format!(
+            return Err(anyhow!(
                 "A RAM binary should have an entry point at the beginning: {:#08x} (not {:#08x})",
-                expected_ep, eh.entry as u32
-            )
-            .into());
+                expected_ep,
+                eh.entry as u32
+            ));
         }
         const_assert!(0 == (MAIN_RAM_START & (PAGE_SIZE - 1)));
 
@@ -170,7 +172,7 @@ fn elf2uf2(mut input: impl Read + Seek, mut output: impl Write) -> Result<(), Bo
     };
 
     if Opts::global().deploy {
-        println!("Transfering program to pico");
+        println!("Transferring program to pico");
     }
 
     let mut pb = if !Opts::global().verbose && Opts::global().deploy {
@@ -206,7 +208,7 @@ fn elf2uf2(mut input: impl Read + Seek, mut output: impl Write) -> Result<(), Bo
         output.write_all(block_header.as_bytes())?;
         output.write_all(block_data.as_bytes())?;
         output.write_all(block_footer.as_bytes())?;
-        
+
         if page_num != last_page_num {
             if let Some(pb) = &mut pb {
                 pb.add(512);
@@ -214,7 +216,7 @@ fn elf2uf2(mut input: impl Read + Seek, mut output: impl Write) -> Result<(), Bo
         }
     }
 
-    // Drop the output before the progress bar is allowd to finish
+    // Drop the output before the progress bar is allowed to finish
     drop(output);
 
     if let Some(pb) = &mut pb {
@@ -224,7 +226,7 @@ fn elf2uf2(mut input: impl Read + Seek, mut output: impl Write) -> Result<(), Bo
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     OPTS.set(Opts::parse()).unwrap();
 
     #[cfg(feature = "serial")]
@@ -234,10 +236,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input = BufReader::new(File::open(&Opts::global().input)?);
 
     let output = if Opts::global().deploy {
-        let sys = sysinfo::System::new_all();
+        let disks = Disks::new_with_refreshed_list();
 
         let mut pico_drive = None;
-        for disk in sys.disks() {
+        for disk in &disks {
             let mount = disk.mount_point();
 
             if mount.join("INFO_UF2.TXT").is_file() {
@@ -251,7 +253,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             deployed_path = Some(pico_drive.join("out.uf2"));
             File::create(deployed_path.as_ref().unwrap())?
         } else {
-            return Err("Unable to find mounted pico".into());
+            return Err(anyhow!("Unable to find mounted pico"));
         }
     } else {
         File::create(Opts::global().output_path())?

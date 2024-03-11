@@ -11,13 +11,14 @@ license = "0BSD"
 repository = "https://github.com/JoNil/elf2uf2-rs"
 
 [dependencies]
+anyhow = "1.0.80"
 assert_into = "1.1"
 clap = { version = "4", features = ["derive"] }
 once_cell = "1.5"
 pbr = "1"
 serialport = { version = "4", optional = true }
 static_assertions = "1"
-sysinfo = "0.29"
+sysinfo = "0.30"
 zerocopy = { version = "0.7", features = ["derive"] }
 
 [features]
