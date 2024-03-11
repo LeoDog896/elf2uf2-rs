@@ -176,8 +176,7 @@ pub trait AddressRangesExt<'a>: IntoIterator<Item = &'a AddressRange> + Clone {
 
         matches!(range.typ, address_range::AddressRangeType::Contents)
     }
-
-    // "check_address_range"
+    
     fn check_address_range(
         &self,
         addr: u32,

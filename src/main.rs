@@ -44,7 +44,7 @@ struct Opts {
     serial: bool,
 
     /// Input file
-    input: String,
+    input: PathBuf,
 
     /// Output file
     output: Option<String>,
@@ -226,14 +226,18 @@ fn elf2uf2(mut input: impl Read + Seek, mut output: impl Write) -> Result<()> {
     Ok(())
 }
 
-fn main() -> Result<()> {
+fn main() {
+    main_err().unwrap();
+}
+
+fn main_err() -> Result<()> {
     OPTS.set(Opts::parse()).unwrap();
 
     #[cfg(feature = "serial")]
     let serial_ports_before = serialport::available_ports()?;
 
     let mut deployed_path = None;
-    let input = BufReader::new(File::open(&Opts::global().input)?);
+    let input = BufReader::new(File::open(&Opts::global().input).expect("Unable to open input file"));
 
     let output = if Opts::global().deploy {
         let disks = Disks::new_with_refreshed_list();
@@ -251,19 +255,19 @@ fn main() -> Result<()> {
 
         if let Some(pico_drive) = pico_drive {
             deployed_path = Some(pico_drive.join("out.uf2"));
-            File::create(deployed_path.as_ref().unwrap())?
+            File::create(deployed_path.as_ref().expect("Deployed path not set")).expect("Unable to create deployed file")
         } else {
             return Err(anyhow!("Unable to find mounted pico"));
         }
     } else {
-        File::create(Opts::global().output_path())?
+        File::create(Opts::global().output_path()).expect("Unable to create output file")
     };
 
     if let Err(err) = elf2uf2(input, BufWriter::new(output)) {
         if Opts::global().deploy {
-            fs::remove_file(deployed_path.unwrap())?;
+            fs::remove_file(deployed_path.expect("Deployed path not set")).expect("Unable to remove deployed file");
         } else {
-            fs::remove_file(Opts::global().output_path())?;
+            fs::remove_file(Opts::global().output_path()).expect("Unable to remove output file");
         }
         return Err(err);
     }
